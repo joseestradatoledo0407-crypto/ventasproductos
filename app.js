@@ -1,0 +1,66 @@
+(() => {
+  'use strict';
+  const $ = (s) => document.querySelector(s);
+  const money = (n) => new Intl.NumberFormat('es-PE', { style: 'currency', currency: 'PEN' }).format(Number(n) || 0);
+  const demoProducts = [
+    {id:'demo-1',name:'Mouse inalámbrico M350',price:59.9,category:'Mouse',image:'photo-1527814050087-3793815479db',tag:'MÁS ELEGIDO'},
+    {id:'demo-2',name:'Teclado mecánico compacto',price:189,category:'Teclados',image:'photo-1587829741301-dc798b83add3',tag:'PARA TU SETUP'},
+    {id:'demo-3',name:'Audífonos con micrófono',price:129.9,category:'Audio',image:'photo-1505740420928-5e560c06d30e',tag:'TRABAJA CÓMODO'},
+    {id:'demo-4',name:'Webcam Full HD',price:149,category:'Conectividad',image:'photo-1587826080692-f439cd0b70da',tag:'VIDEO CLARO'},
+    {id:'demo-5',name:'Hub USB-C 6 en 1',price:99.9,category:'Conectividad',image:'photo-1625842268584-8f3296236761',tag:'MÁS CONEXIONES'},
+    {id:'demo-6',name:'Base ajustable para laptop',price:89,category:'Accesorios',image:'photo-1527864550417-7fd91fc51a46',tag:'ERGONOMÍA'},
+    {id:'demo-7',name:'Mouse pad de escritorio',price:35,category:'Accesorios',image:'photo-1615663245857-ac93bb7c39e7',tag:'DETALLES QUE SUMAN'},
+    {id:'demo-8',name:'Parlante Bluetooth compacto',price:119,category:'Audio',image:'photo-1608043152269-423dbba4e7e1',tag:'BUEN SONIDO'}
+  ].map(p => ({...p,image:`https://images.unsplash.com/${p.image}?auto=format&fit=crop&w=650&q=80`}));
+  const aliases = {
+    productId:['id_producto','producto_id','idproducto','id','codigo_producto','codigo'], productName:['nombre_producto','producto','nombre','descripcion','name'], productPrice:['precio_venta','precio','price','costo'],
+    sellerId:['id_vendedor','vendedor_id','idvendedor','id','codigo_vendedor'], sellerName:['nombre_vendedor','vendedor','nombre','nombres','name'],
+    saleProduct:['id_producto','producto_id','idproducto'], saleSeller:['id_vendedor','vendedor_id','idvendedor'], saleQty:['cantidad','qty','quantity'], salePrice:['precio','precio_unitario','price'], saleTotal:['total','subtotal','importe','monto']
+  };
+  const state = {config:null, products:demoProducts, sellers:[], cart:[], category:'Todos', live:false};
+  const readConfig = () => { try { return JSON.parse(sessionStorage.getItem('sp-config') || 'null'); } catch { return null; } };
+  const configFields = ['url','key','tableProducts','tableSellers','tableSales','productId','productName','productPrice','sellerId','sellerName','saleProduct','saleSeller','saleQty','salePrice','saleTotal'];
+  const configInputs = {'url':'#supabase-url','key':'#supabase-key','tableProducts':'#table-products','tableSellers':'#table-sellers','tableSales':'#table-sales','productId':'#col-product-id','productName':'#col-product-name','productPrice':'#col-product-price','sellerId':'#col-seller-id','sellerName':'#col-seller-name','saleProduct':'#col-sale-product','saleSeller':'#col-sale-seller','saleQty':'#col-sale-qty','salePrice':'#col-sale-price','saleTotal':'#col-sale-total'};
+  state.config = readConfig();
+  const normalized = (s) => String(s ?? '').toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g,'').replace(/[^a-z0-9_]/g,'');
+  function fieldFor(row, kind, cfgKey) {
+    if (state.config?.[cfgKey] && Object.hasOwn(row,state.config[cfgKey])) return state.config[cfgKey];
+    const keys=Object.keys(row), wanted=aliases[kind];
+    return keys.find(k => wanted.includes(normalized(k))) || keys.find(k => wanted.some(a => normalized(k).includes(a))) || null;
+  }
+  function valueFor(row,kind,cfgKey) { const k=fieldFor(row,kind,cfgKey); return k ? row[k] : null; }
+  function photo(item) { return item.image || demoProducts[Math.abs(hash(String(item.id ?? item.name))) % demoProducts.length].image; }
+  function hash(s) { let h=0; for(let i=0;i<s.length;i++) h=(h*31+s.charCodeAt(i))|0; return h; }
+  function renderCategories() {
+    const cats=['Todos',...new Set(state.products.map(p=>p.category||'Productos'))];
+    $('#category-filters').innerHTML=cats.map(c=>`<button class="filter-chip ${state.category===c?'active':''}" data-category="${escapeHtml(c)}">${escapeHtml(c)}</button>`).join('');
+    $('#category-filters').querySelectorAll('button').forEach(b=>b.addEventListener('click',()=>{state.category=b.dataset.category; renderCategories(); renderProducts();}));
+  }
+  function escapeHtml(v) { return String(v ?? '').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c])); }
+  function renderProducts() {
+    const term=$('#search').value.trim().toLowerCase();
+    const list=state.products.filter(p=>(state.category==='Todos'||(p.category||'Productos')===state.category)&&String(p.name).toLowerCase().includes(term));
+    $('#product-grid').innerHTML=list.map((p,i)=>`<article class="product-card"><div class="product-image"><img loading="lazy" src="${escapeHtml(photo(p))}" alt="${escapeHtml(p.name)}"><span class="product-tag">${escapeHtml(p.tag||'SUPERPRODUCTOS')}</span></div><div class="product-info"><small>${escapeHtml(p.category||'Accesorios')}</small><h3>${escapeHtml(p.name)}</h3><div class="product-bottom"><span class="product-price">${money(p.price)}</span><button class="product-add" data-add="${escapeHtml(p.id)}" title="Añadir al carrito">＋</button></div></div></article>`).join('');
+    $('#catalog-status').textContent=state.live ? `${state.products.length} productos desde tu catálogo Supabase.` : 'Catálogo ilustrativo de demostración. Conecta Supabase para cargar tus productos reales.';
+    $('#product-grid').querySelectorAll('[data-add]').forEach(b=>b.addEventListener('click',()=>addItem(b.dataset.add)));
+    fillProductSelect();
+  }
+  function fillProductSelect(){const sel=$('#product-select');const previous=sel.value;sel.innerHTML='<option value="">Buscar en el catálogo…</option>'+state.products.map(p=>`<option value="${escapeHtml(p.id)}">${escapeHtml(p.name)} · ${money(p.price)}</option>`).join('');if(state.products.some(p=>String(p.id)===previous))sel.value=previous;}
+  function renderSellers(){const sel=$('#seller-select');sel.innerHTML='<option value="">Selecciona un vendedor</option>'+state.sellers.map(s=>`<option value="${escapeHtml(s.id)}">${escapeHtml(s.name)}</option>`).join('');}
+  function renderCart(){const body=$('#cart-body');body.innerHTML=state.cart.map((item,i)=>`<tr><td>${escapeHtml(item.name)}</td><td>${money(item.price)}</td><td><input type="number" min="1" step="1" value="${item.qty}" data-qty="${i}" aria-label="Cantidad de ${escapeHtml(item.name)}"></td><td>${money(item.price*item.qty)}</td><td><button class="remove-item" data-remove="${i}" aria-label="Eliminar ${escapeHtml(item.name)}">×</button></td></tr>`).join('');$('#empty-cart').hidden=state.cart.length>0;body.querySelectorAll('[data-qty]').forEach(el=>el.addEventListener('change',()=>{state.cart[Number(el.dataset.qty)].qty=Math.max(1,Math.floor(Number(el.value)||1));renderCart();}));body.querySelectorAll('[data-remove]').forEach(el=>el.addEventListener('click',()=>{state.cart.splice(Number(el.dataset.remove),1);renderCart();}));const count=state.cart.reduce((n,x)=>n+x.qty,0),total=state.cart.reduce((n,x)=>n+x.price*x.qty,0);$('#item-count').textContent=`${count} ${count===1?'artículo':'artículos'}`;$('#subtotal').textContent=money(total);$('#grand-total').textContent=money(total);}
+  function addItem(id){const p=state.products.find(x=>String(x.id)===String(id));if(!p)return;const found=state.cart.find(x=>String(x.id)===String(p.id));if(found)found.qty++;else state.cart.push({...p,qty:1});renderCart();toast(`${p.name} añadido al carrito`);}
+  async function api(table,query='select=*'){const c=state.config;if(!c?.url||!c?.key)throw new Error('Configura la conexión a Supabase antes de continuar.');const base=c.url.replace(/\/$/,'');const response=await fetch(`${base}/rest/v1/${encodeURIComponent(table)}?${query}`,{headers:{apikey:c.key,Authorization:`Bearer ${c.key}`,Accept:'application/json'}});if(!response.ok)throw new Error(await response.text().then(t=>friendlyError(t,response.status)));return response.json();}
+  function friendlyError(text,status){try{const e=JSON.parse(text);return e.message||e.details||`Supabase respondió ${status}.`;}catch{return `Supabase respondió ${status}. Revisa la URL, la clave, los permisos y RLS.`;}}
+  function mapped(row,kind,idKey,nameKey,priceKey){const id=valueFor(row,kind==='product'?'productId':'sellerId',idKey);const name=valueFor(row,kind==='product'?'productName':'sellerName',nameKey);return{id:id??name,name:name??String(id??'Sin nombre'),...(kind==='product'?{price:Number(valueFor(row,'productPrice',priceKey))||0,category:row.categoria||row.category||'Accesorios'}:{})};}
+  async function connectAndLoad(){if(!state.config?.url||!state.config?.key){setConnection(false,'Modo demostración');return;}try{const [products,sellers]=await Promise.all([api(state.config.tableProducts),api(state.config.tableSellers)]);if(!Array.isArray(products)||!Array.isArray(sellers))throw new Error('Las tablas deben devolver una lista de filas.');state.products=products.map(r=>mapped(r,'product','productId','productName','productPrice'));state.sellers=sellers.map(r=>mapped(r,'seller','sellerId','sellerName'));state.live=true;setConnection(true,'Supabase conectado');renderSellers();renderCategories();renderProducts();toast('Catálogo y vendedores actualizados.');}catch(e){state.live=false;state.products=demoProducts;state.sellers=[];renderSellers();renderCategories();renderProducts();setConnection(false,'Error de conexión');message(e.message,true);}}
+  function setConnection(ok,label){const b=$('#connection-badge');b.classList.toggle('connected',ok);b.querySelector('span').textContent=label;}
+  function message(text,error=false){const el=$('#sale-message');el.textContent=text;el.classList.toggle('error',error);}
+  let toastTimer;function toast(text){const el=$('#toast');el.textContent=text;el.classList.add('show');clearTimeout(toastTimer);toastTimer=setTimeout(()=>el.classList.remove('show'),2300);}
+  function openConfig(){for(const key of configFields){const input=$(configInputs[key]);input.value=state.config?.[key]||input.value||'';if(key==='key')input.value=state.config?.key||'';}$('#config-dialog').showModal();}
+  $('#config-open').addEventListener('click',openConfig);
+  $('#config-form').addEventListener('submit',async e=>{e.preventDefault();const cfg={};for(const key of configFields)cfg[key]=$(configInputs[key]).value.trim();if(!cfg.url||!cfg.key){toast('Completa URL y clave pública de Supabase');return;}try{new URL(cfg.url);}catch{toast('La URL del proyecto no es válida');return;}sessionStorage.setItem('sp-config',JSON.stringify(cfg));state.config=cfg;$('#config-dialog').close();message('Conexión guardada. Cargando catálogo…');await connectAndLoad();});
+  $('#disconnect').addEventListener('click',()=>{sessionStorage.removeItem('sp-config');state.config=null;state.products=demoProducts;state.sellers=[];state.live=false;state.cart=[];renderSellers();renderCart();renderCategories();renderProducts();setConnection(false,'Modo demostración');$('#config-dialog').close();message('Conexión desconectada.');});
+  $('#search').addEventListener('input',renderProducts);$('#add-product').addEventListener('click',()=>{if(!$('#product-select').value){toast('Elige un producto del catálogo');return;}addItem($('#product-select').value);$('#product-select').value='';});$('#refresh-data').addEventListener('click',connectAndLoad);$('#cancel-sale').addEventListener('click',()=>{state.cart=[];$('#seller-select').value='';renderCart();message('Venta cancelada. El carrito está vacío.');});
+  $('#save-sale').addEventListener('click',async()=>{if(!state.live||!state.config){message('Conecta Supabase para guardar ventas en la base de datos.',true);$('#config-dialog').showModal();return;}if(!$('#seller-select').value){message('Selecciona al vendedor que registra esta venta.',true);return;}if(!state.cart.length){message('Agrega al menos un producto al carrito.',true);return;}const seller=state.sellers.find(x=>String(x.id)===$('#seller-select').value);const sellerColumn=state.config.saleSeller||state.config.sellerId||'id_vendedor';const productColumn=state.config.saleProduct||state.config.productId||'id_producto';const qtyColumn=state.config.saleQty||'cantidad';const priceColumn=state.config.salePrice||'precio';const totalColumn=state.config.saleTotal||'total';const payload=state.cart.map(p=>({[sellerColumn]:seller.id,[productColumn]:p.id,[qtyColumn]:p.qty,[priceColumn]:p.price,[totalColumn]:p.price*p.qty}));try{const response=await fetch(`${state.config.url.replace(/\/$/,'')}/rest/v1/${encodeURIComponent(state.config.tableSales)}?select=*`,{method:'POST',headers:{apikey:state.config.key,Authorization:`Bearer ${state.config.key}`,'Content-Type':'application/json',Prefer:'return=representation'},body:JSON.stringify(payload)});if(!response.ok)throw new Error(await response.text().then(t=>friendlyError(t,response.status)));state.cart=[];$('#seller-select').value='';renderCart();message(`Venta grabada correctamente${seller?` por ${seller.name}`:''}.`);toast('Venta guardada en Supabase');}catch(e){message(`No se pudo guardar la venta: ${e.message}`,true);}});
+  renderCategories();renderProducts();renderCart();renderSellers();if(state.config)connectAndLoad();
+})();
